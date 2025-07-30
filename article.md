@@ -1,12 +1,12 @@
-This article demonstrates a couple approaches for migrating infrequently-accessed data in Elasticsearch to a cheaper medium.  This sort of migration can be handled out-of-box for timeseries-oriented data via Index Lifecycle Management (ILM).  ILM supports both age and size triggers for migrating indices to cheaper storage.  For a search use case, those triggers are generally not sufficient the migration decision.  Instead, more sophisticated logic is necessary.  This can be accomplished via the Elastic API.  In the end state, infrequently-accessed/never-updated data is put in the frozen tier as a searchable snapshot.  Those snapshots reside in cloud object storage making for a very affordable and resilient medium for searchable data.  
+This article demonstrates two approaches for migrating infrequently accessed data in Elasticsearch to a less expensive medium via data tiering.  This sort of migration can be handled out-of-the-box for timeseries-oriented data via [Index Lifecycle Management](https://www.elastic.co/docs/manage-data/lifecycle/index-lifecycle-management) (ILM).  ILM supports both age and size triggers for migrating indices to cheaper storage.  For a search use case, those triggers are generally insufficient for making a migration decision.  Instead, more sophisticated logic is necessary.  This can be accomplished via the Elastic API.  In the end state, infrequently-accessed/never-updated data is put in the frozen tier as a [searchable snapshot](https://www.elastic.co/docs/deploy-manage/tools/snapshot-and-restore/searchable-snapshots).  Those snapshots reside in cloud object storage, making for a very affordable and resilient medium for searchable data.  
 
 # Demo Scenario
-This demo assumes an Elastic Cloud Hosted (ECH) architecture with hot and frozen data tiers.  The data set consists of 1000 documents of article content indexed on one primary and one replica shard.  The articles are dated between Mar and Sep 2022.  We will be migrating the Mar-Aug articles off the hot tier to the frozen tier.  Those articles in the frozen tier will be stored as a searchable snapshot.
+This demo assumes an [Elastic Cloud Hosted](https://www.elastic.co/cloud) (ECH) architecture with [hot](https://www.elastic.co/docs/manage-data/lifecycle/data-tiers#hot-tier) and [frozen](https://www.elastic.co/docs/manage-data/lifecycle/data-tiers#frozen-tier) [data tiers](https://www.elastic.co/docs/manage-data/lifecycle/data-tiers).  The dataset consists of 1000 documents of article content indexed on one primary and one replica shard.  The articles are dated between March and September 2022.  We will be migrating the Mar-Aug articles off the hot tier to the frozen tier.  Those articles in the frozen tier will be stored as a searchable snapshot.
 
-## Cloud Architecture
+# Architecture
 ![cloud architecture](assets/cloud-arch.jpg) 
 
-### Node Info
+## Node Info
 As depicted below, we have 2 nodes in the hot tier and 1 in the frozen tier.
 ```bash
 GET _cat/nodes?v&h=name,node.role&s=name
@@ -19,7 +19,7 @@ instance-0000000002   f
 tiebreaker-0000000003 mv
 ```
 
-### Shard Info
+## Shard Info
 ```bash
 GET _cat/shards/articles?v&s=index&h=index,node
 ```
@@ -120,9 +120,8 @@ I show two migration options below:  Clone and Re-index.
 - can change mappings, apply scripts, etc to the target index
 
 
-
 # Migration Option 1 - Clone 
-Below is a step-by-step explanation of how to accomplish this migration using the _clone API.
+Below is a step-by-step explanation of how to accomplish this migration using the (_clone)[https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-clone] API.
 ## Step 1 - Set Source Index to Read-only
 ```bash
 PUT /articles/_settings
@@ -132,21 +131,9 @@ PUT /articles/_settings
   }
 }
 ```
-```json
-{
-  "acknowledged": true
-}
-```
 ## Step 2 - Clone the Source Index to a Target Index
 ```bash
 POST /articles/_clone/03-2022_08-2022
-```
-```json
-{
-  "acknowledged": true,
-  "shards_acknowledged": true,
-  "index": "03-2022_08-2022"
-}
 ```
 ## Step 3 - Re-enable Write access to both Source and Target
 ```bash
@@ -197,6 +184,7 @@ POST /03-2022_08-2022/_delete_by_query
 }
 ```
 ## Step 5 - Create Searchable Snapshot
+Create the snapshot via the [_snapshot](https://www.elastic.co/docs/api/doc/elasticsearch/group/endpoint-snapshot) API.
 ```bash
 POST _snapshot/found-snapshots/archive_03-2022_08-2022?wait_for_completion=true
 {
@@ -263,6 +251,7 @@ POST _snapshot/found-snapshots/archive_03-2022_08-2022/_mount?wait_for_completio
 }
 ```
 ## Step 7 - Delete the Migrated Docs from the Hot Index
+Leverage the [_delete_by_query](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-delete-by-query) API to clean out the migrated docs from the source index.
 ```bash
 POST /articles/_delete_by_query
 {
@@ -402,7 +391,7 @@ GET idx-archive_03-2022_08-2022/_count
 # Migration Option 2 - Re-index
 Below is the same migration performed with the _reindex API.  Many of the same steps from the clone migration are repeated here.
 ## Step 1 - Create a Filter Script
-Painless script below to allow for filtering which documents wind up in the index that is ultimately converted to a searchable snapshot. 
+(Painless script)[https://www.elastic.co/docs/explore-analyze/scripting/modules-scripting-painless] below to allow for filtering which documents wind up in the index that is ultimately converted to a searchable snapshot. 
 ```bash
 POST _scripts/date_filter
 {
@@ -420,7 +409,7 @@ POST _scripts/date_filter
 }
 ```
 ## Step 2 - Re-index to a Temp Index
-Here we're moving the docs that are targeted to be migrated to searchable snapshot to a temporary index via _reindex and the filter script above.
+Here we're moving the docs that are targeted for migration to a searchable snapshot to a temporary index via the (_reindex)[https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-reindex] API and the filter script above.
 ```bash
 POST _reindex 
 {
