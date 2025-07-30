@@ -9,7 +9,7 @@
 This demonstrates a couple options for migrating old/infrequently accessed non-timeseries data to searchable snapshots.
 
 ## Architecture <a name="architecture"></a>
-![architecture](assets/Highlevel-arch.jpg)  
+![architecture](assets/cloud-arch.jpg)  
 
 ## Features <a name="features"></a>
 - Demonstrates two methods for migrating hot/non-timeseries data to a frozen layer
